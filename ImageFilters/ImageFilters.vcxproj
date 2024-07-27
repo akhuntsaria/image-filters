@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{52996400-c88f-4f2c-a3c9-334bc75592f8}</ProjectGuid>
+    <RootNamespace>ImageFilters</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>C:\Users\akaki\Downloads\opencv-4.10.0\build\install\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\aded.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\IlmImfd.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\ippicvmt.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\ippiwd.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\ittnotifyd.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\libjpeg-turbod.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\libopenjp2d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\libpngd.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\libprotobufd.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\libtiffd.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\libwebpd.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_calib3d4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_core4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_dnn4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_features2d4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_flann4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_gapi4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_highgui4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_imgcodecs4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_imgproc4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_ml4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_objdetect4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_photo4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_stitching4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_video4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\opencv_videoio4100d.lib;C:\Users\akaki\Downloads\opencv-4.10.0\build\install\x64\vc17\staticlib\zlibd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="ImageFilters.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="sample1.png" />
+    <Image Include="stars.jpeg" />
+    <Image Include="wall.png" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
