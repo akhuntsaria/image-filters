@@ -6,23 +6,43 @@
 #include <stdio.h>
 
 const char* CURRENT_FILTER =
-    //"Blur";
-    "Grayscale";
+    "Box Blur";
+    //"Grayscale";
     //"Invert";
     //"Red Channel";
+const char* IMAGE_PATH = "image.jpg";
 
-__global__ void blurKernel(unsigned char* source, unsigned char* target, int width, int height, int channels) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
+__constant__ float BOX_BLUR_RADIUS = 5;
+
+__global__ void boxBlurKernel(unsigned char* source, unsigned char* target, int width, int height, int channels) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x,
+        y = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (x < width && y < height) {
+        int totalSize = width * height * channels;
         for (int ch = 0;ch < channels;ch++) {
+            // Sum the channel of pixels in all directions. 9 pixels for radius 2.
+            // * * *
+            // * p *
+            // * * *
+            int chSum = 0;
+            // For radius 2 the range it [-1,1]
+            for (int i = -BOX_BLUR_RADIUS + 1;i < BOX_BLUR_RADIUS;i++) {
+                for (int j = -BOX_BLUR_RADIUS + 1;j < BOX_BLUR_RADIUS;j++) {
+                    int idx = (y + j) * width * channels + (x + i) * channels;
+                    idx += ch;
+                    if (idx >= 0 && idx < totalSize) {
+                        chSum += (int)source[idx];
+                    }
+                }
+            }
+            int boxSide = BOX_BLUR_RADIUS * 2 - 1,
+                boxPixels = boxSide * boxSide,
+                avg = chSum / boxPixels;
+
             int centerIdx = y * width * channels + x * channels;
+            target[centerIdx + ch] = avg;
         }
-        
-        /*for (int ch = 0;ch < channels;ch++) {
-            target[centerIdx + ch] = (int)source[centerIdx + ch] / 2;
-        }*/
     }
 }
 
@@ -70,7 +90,7 @@ __global__ void redChannelKernel(unsigned char* imageData, int width, int height
 
 int main()
 {
-    cv::Mat image = cv::imread("images.jpg", cv::IMREAD_ANYCOLOR);
+    cv::Mat image = cv::imread(IMAGE_PATH, cv::IMREAD_ANYCOLOR);
 
     if (image.empty())
     {
@@ -107,12 +127,12 @@ int main()
     printf("blockSize: (%d,%d,%d)\n", blockSize.x, blockSize.y, blockSize.z);
     printf("gridSize: (%d,%d,%d)\n", gridSize.x, gridSize.y, gridSize.z);
 
-    if (strcmp(CURRENT_FILTER, "Blur") == 0) {
+    if (strcmp(CURRENT_FILTER, "Box Blur") == 0) {
         unsigned char* deviceImageDataCopy;
         cudaMalloc(&deviceImageDataCopy, imageDataSize);
         cudaMemcpy(deviceImageDataCopy, image.data, imageDataSize, cudaMemcpyHostToDevice);
 
-        blurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels);
+        boxBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels);
 
         hostImageData = (unsigned char*)malloc(imageDataSize);
         cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
