@@ -6,15 +6,17 @@
 #include <stdio.h>
 
 const char* CURRENT_FILTER =
-    "Box Blur";
+    "Animated Blur";
+    //"Box Blur";
+    //"Gaussian Blur";
     //"Grayscale";
     //"Invert";
     //"Red Channel";
 const char* IMAGE_PATH = "image.jpg";
 
-__constant__ float BOX_BLUR_RADIUS = 5;
+__constant__ int BOX_BLUR_RADIUS = 5;
 
-__global__ void boxBlurKernel(unsigned char* source, unsigned char* target, int width, int height, int channels) {
+__global__ void boxBlurKernel(unsigned char* source, unsigned char* target, int width, int height, int channels, int blur_radius) {
     int x = blockIdx.x * blockDim.x + threadIdx.x,
         y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -27,8 +29,8 @@ __global__ void boxBlurKernel(unsigned char* source, unsigned char* target, int 
             // * * *
             int chSum = 0;
             // For radius 2 the range it [-1,1]
-            for (int i = -BOX_BLUR_RADIUS + 1;i < BOX_BLUR_RADIUS;i++) {
-                for (int j = -BOX_BLUR_RADIUS + 1;j < BOX_BLUR_RADIUS;j++) {
+            for (int i = -blur_radius + 1;i < blur_radius;i++) {
+                for (int j = -blur_radius + 1;j < blur_radius;j++) {
                     int idx = (y + j) * width * channels + (x + i) * channels;
                     idx += ch;
                     if (idx >= 0 && idx < totalSize) {
@@ -36,12 +38,42 @@ __global__ void boxBlurKernel(unsigned char* source, unsigned char* target, int 
                     }
                 }
             }
-            int boxSide = BOX_BLUR_RADIUS * 2 - 1,
+            int boxSide = blur_radius * 2 - 1,
                 boxPixels = boxSide * boxSide,
                 avg = chSum / boxPixels;
 
             int centerIdx = y * width * channels + x * channels;
             target[centerIdx + ch] = avg;
+        }
+    }
+}
+
+__global__ void gaussianBlurKernel(unsigned char* source, unsigned char* target, int width, int height, int channels) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x,
+        y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x < width && y < height) {
+        int totalSize = width * height * channels;
+        float kernel[3][3] = {
+            {1 / 16.0, 2 / 16.0, 1 / 16.0},
+            {2 / 16.0, 4 / 16.0, 2 / 16.0},
+            {1 / 16.0, 2 / 16.0, 1 / 16.0}
+        };
+        for (int ch = 0;ch < channels;ch++) {
+            float weightedSum = 0;
+            for (int i = -1;i <= 1;i++) {
+                for (int j = -1;j <= 1;j++) {
+                    int idx = (y + j) * width * channels + (x + i) * channels;
+                    idx += ch;
+                    if (idx >= 0 && idx < totalSize) {
+                        // Moving indices from [-1,1] to [0,2] for the kernel
+                        weightedSum += (int)source[idx] * kernel[i+1][j+1];
+                    }
+                }
+            }
+
+            int centerIdx = y * width * channels + x * channels;
+            target[centerIdx + ch] = weightedSum;
         }
     }
 }
@@ -98,8 +130,8 @@ int main()
         return -1;
     }
 
-    cv::namedWindow("Original", cv::WINDOW_AUTOSIZE);
-    cv::imshow("Original", image);
+    //cv::namedWindow("Original", cv::WINDOW_AUTOSIZE);
+    //cv::imshow("Original", image);
 
     int width = image.cols,
         height = image.rows,
@@ -127,12 +159,60 @@ int main()
     printf("blockSize: (%d,%d,%d)\n", blockSize.x, blockSize.y, blockSize.z);
     printf("gridSize: (%d,%d,%d)\n", gridSize.x, gridSize.y, gridSize.z);
 
-    if (strcmp(CURRENT_FILTER, "Box Blur") == 0) {
+    cv::namedWindow(CURRENT_FILTER, cv::WINDOW_AUTOSIZE);
+
+    if (strcmp(CURRENT_FILTER, "Animated Blur") == 0) {
         unsigned char* deviceImageDataCopy;
         cudaMalloc(&deviceImageDataCopy, imageDataSize);
         cudaMemcpy(deviceImageDataCopy, image.data, imageDataSize, cudaMemcpyHostToDevice);
 
-        boxBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels);
+        for (int radius = 2,direction = 1;;radius+=direction) {
+            cudaEvent_t startEvent, endEvent;
+            cudaEventCreate(&startEvent);
+            cudaEventCreate(&endEvent);
+
+            cudaEventRecord(startEvent, 0);
+            boxBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels, radius);
+            cudaEventRecord(endEvent, 0);
+            
+            cudaEventSynchronize(endEvent);
+
+            float elapsedTime;
+            cudaEventElapsedTime(&elapsedTime, startEvent, endEvent);
+
+            printf("Radius %d,\texecuted in %fms\n", radius, elapsedTime);
+
+            cudaEventDestroy(startEvent);
+            cudaEventDestroy(endEvent);
+
+            hostImageData = (unsigned char*)malloc(imageDataSize);
+            cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
+
+            cv::Mat modifiedImage = cv::Mat(height, width, CV_8UC3, hostImageData);
+            cv::imshow(CURRENT_FILTER, modifiedImage);
+            cv::waitKey(100);
+
+            if (radius == 50 || radius == 1) {
+                direction = -direction;
+            }
+        }
+    }
+    else if (strcmp(CURRENT_FILTER, "Box Blur") == 0) {
+        unsigned char* deviceImageDataCopy;
+        cudaMalloc(&deviceImageDataCopy, imageDataSize);
+        cudaMemcpy(deviceImageDataCopy, image.data, imageDataSize, cudaMemcpyHostToDevice);
+
+        boxBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels, BOX_BLUR_RADIUS);
+
+        hostImageData = (unsigned char*)malloc(imageDataSize);
+        cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
+    }
+    else if (strcmp(CURRENT_FILTER, "Gaussian Blur") == 0) {
+        unsigned char* deviceImageDataCopy;
+        cudaMalloc(&deviceImageDataCopy, imageDataSize);
+        cudaMemcpy(deviceImageDataCopy, image.data, imageDataSize, cudaMemcpyHostToDevice);
+
+        gaussianBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels);
 
         hostImageData = (unsigned char*)malloc(imageDataSize);
         cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
@@ -161,11 +241,12 @@ int main()
     }
 
     int executions = gridSize.x * gridSize.y * gridSize.z * blockSize.x * blockSize.y * blockSize.z;
-    printf("Kernel was executed %d times, wasted %d\n", executions, executions - image.total());
+    printf("Kernel was executed %d times, wasted %d\n", executions, executions - (int) image.total());
 
     cv::Mat modifiedImage = cv::Mat(height, width, CV_8UC3, hostImageData);
 
-    cv::namedWindow(CURRENT_FILTER, cv::WINDOW_AUTOSIZE);
+    cv::imwrite("modified.bmp", modifiedImage);
+
     cv::imshow(CURRENT_FILTER, modifiedImage);
 
     cv::waitKey(0);
