@@ -1,6 +1,7 @@
 ﻿#include <cuda_runtime.h>
 #include <curand_kernel.h>
 #include <opencv2/core.hpp>
+#include <opencv2/core/matx.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 #include <stdio.h>
@@ -14,36 +15,42 @@ const char* CURRENT_FILTER =
     //"Red Channel";
 const char* IMAGE_PATH = "image.jpg";
 
-__constant__ int BOX_BLUR_RADIUS = 5;
+// 3D index, image[channel][i][j], to 1D
+__device__ __host__ int get1dIdx(int width, int channels, int channel, int i, int j) {
+    return j * width * channels + i * channels + channel;
+}
 
-__global__ void boxBlurKernel(unsigned char* source, unsigned char* target, int width, int height, int channels, int blur_radius) {
+__global__ void boxBlurKernel(unsigned long* pre, unsigned char* target, int width, int height, int channels, int blur_radius) {
     int x = blockIdx.x * blockDim.x + threadIdx.x,
         y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (x < width && y < height) {
-        int totalSize = width * height * channels;
+    if (x >= 0 && x < width && y >= 0 && y < height) {
         for (int ch = 0;ch < channels;ch++) {
-            // Sum the channel of pixels in all directions. 9 pixels for radius 2.
-            // * * *
-            // * p *
-            // * * *
-            int chSum = 0;
-            // For radius 2 the range it [-1,1]
-            for (int i = -blur_radius + 1;i < blur_radius;i++) {
-                for (int j = -blur_radius + 1;j < blur_radius;j++) {
-                    int idx = (y + j) * width * channels + (x + i) * channels;
-                    idx += ch;
-                    if (idx >= 0 && idx < totalSize) {
-                        chSum += (int)source[idx];
-                    }
-                }
+            // Sum of the box, from (x1,y1) to (x2,y2) = pre[x2][y2] + pre[x1-1][y1-1] - pre[x1-1][y2] - pre[x2][y1-1]
+            int x1 = max(x - blur_radius + 1, 0),
+                y1 = max(y - blur_radius + 1, 0),
+                x2 = min(x + blur_radius - 1, width - 1),
+                y2 = min(y + blur_radius - 1, height - 1);
+            long chSum = pre[get1dIdx(width, channels, ch, x2, y2)];
+            if (x1 > 0) {
+                // Underflow?
+                chSum -= pre[get1dIdx(width, channels, ch, x1-1, y2)];
             }
+
+            if (y1 > 0) {
+                chSum -= pre[get1dIdx(width, channels, ch, x2, y1-1)];
+            }
+
+            if (x1 > 0 && y1 > 0) {
+                chSum += pre[get1dIdx(width, channels, ch, x1 - 1, y1 - 1)];
+            }
+
             int boxSide = blur_radius * 2 - 1,
                 boxPixels = boxSide * boxSide,
                 avg = chSum / boxPixels;
+            //printf("ch=%d, center=(%d,%d), box=(%d,%d)-(%d,%d), sum %d, avg %d\n", ch, x, y, x1, y1, x2, y2, chSum, avg);
 
-            int centerIdx = y * width * channels + x * channels;
-            target[centerIdx + ch] = avg;
+            target[get1dIdx(width, channels, ch, x, y)] = avg;
         }
     }
 }
@@ -162,17 +169,45 @@ int main()
     cv::namedWindow(CURRENT_FILTER, cv::WINDOW_AUTOSIZE);
 
     if (strcmp(CURRENT_FILTER, "Animated Blur") == 0) {
-        unsigned char* deviceImageDataCopy;
-        cudaMalloc(&deviceImageDataCopy, imageDataSize);
-        cudaMemcpy(deviceImageDataCopy, image.data, imageDataSize, cudaMemcpyHostToDevice);
+        // Prefix sum of a matrix. sum[i][j] = val[i][j] + sum[i-1][j] + sum[i][j-1] - sum[i-1][j-1]
+        unsigned long* pre = (unsigned long*)malloc(imageDataSize * sizeof(unsigned long));
+        for (int ch = 0;ch < channels;ch++) {
+            for (int i = 0;i < width;i++) {
+                for (int j = 0;j < height;j++) {
+                    int chValue = image.at<cv::Vec3b>(j, i)[ch];
+                    int idx = get1dIdx(width, channels, ch, i, j);
+                    pre[idx] = chValue;
+                    if (i > 0) {
+                        int topIdx = get1dIdx(width, channels, ch, i-1, j);
+                        pre[idx] += pre[topIdx];
+                    }
+
+                    if (j > 0) {
+                        int leftIdx = get1dIdx(width, channels, ch, i, j-1);
+                        pre[idx] += pre[leftIdx];
+                    }
+
+                    if (i > 0 && j > 0) {
+                        int topLeftIdx = get1dIdx(width, channels, ch, i-1, j-1);
+                        pre[idx] -= pre[topLeftIdx];
+                    }
+                }
+            }
+            
+        }
+
+        unsigned long* devicePre;
+        cudaMalloc(&devicePre, imageDataSize * sizeof(unsigned long));
+
+        cudaMemcpy(devicePre, pre, imageDataSize * sizeof(unsigned long), cudaMemcpyHostToDevice);
+
+        cudaEvent_t startEvent, endEvent;
+        cudaEventCreate(&startEvent);
+        cudaEventCreate(&endEvent);
 
         for (int radius = 2,direction = 1;;radius+=direction) {
-            cudaEvent_t startEvent, endEvent;
-            cudaEventCreate(&startEvent);
-            cudaEventCreate(&endEvent);
-
             cudaEventRecord(startEvent, 0);
-            boxBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels, radius);
+            boxBlurKernel << <gridSize, blockSize >> > (devicePre, deviceImageData, width, height, channels, radius);
             cudaEventRecord(endEvent, 0);
             
             cudaEventSynchronize(endEvent);
@@ -181,9 +216,6 @@ int main()
             cudaEventElapsedTime(&elapsedTime, startEvent, endEvent);
 
             printf("Radius %d,\texecuted in %fms\n", radius, elapsedTime);
-
-            cudaEventDestroy(startEvent);
-            cudaEventDestroy(endEvent);
 
             hostImageData = (unsigned char*)malloc(imageDataSize);
             cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
@@ -196,16 +228,25 @@ int main()
                 direction = -direction;
             }
         }
+
+        cudaEventDestroy(startEvent);
+        cudaEventDestroy(endEvent);
+
+        cudaFree(devicePre);
+
+        free(pre);
     }
     else if (strcmp(CURRENT_FILTER, "Box Blur") == 0) {
         unsigned char* deviceImageDataCopy;
         cudaMalloc(&deviceImageDataCopy, imageDataSize);
         cudaMemcpy(deviceImageDataCopy, image.data, imageDataSize, cudaMemcpyHostToDevice);
 
-        boxBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels, BOX_BLUR_RADIUS);
+        //boxBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels, 5);
 
         hostImageData = (unsigned char*)malloc(imageDataSize);
         cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
+
+        cudaFree(deviceImageDataCopy);
     }
     else if (strcmp(CURRENT_FILTER, "Gaussian Blur") == 0) {
         unsigned char* deviceImageDataCopy;
@@ -250,5 +291,7 @@ int main()
     cv::imshow(CURRENT_FILTER, modifiedImage);
 
     cv::waitKey(0);
+
+    cudaFree(deviceImageData);
     return 0;
 }
