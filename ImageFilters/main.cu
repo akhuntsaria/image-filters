@@ -7,15 +7,16 @@
 #include <stdio.h>
 
 const char* CURRENT_FILTER =
-    "Animated Blur";
     //"Box Blur";
     //"Gaussian Blur";
     //"Grayscale";
     //"Invert";
     //"Red Channel";
-const char* IMAGE_PATH = "image.jpg";
+    "Threshold Edge Detection";
+const char* IMAGE_PATH = "edgeflower.jpg";
+const int KEY_P = 112;
 
-// 3D index, image[channel][i][j], to 1D
+// Color + 2D index, image[channel][i][j], to 1D
 __device__ __host__ int get1dIdx(int width, int channels, int channel, int i, int j) {
     return j * width * channels + i * channels + channel;
 }
@@ -26,7 +27,7 @@ __global__ void boxBlurKernel(unsigned long* pre, unsigned char* target, int wid
 
     if (x >= 0 && x < width && y >= 0 && y < height) {
         for (int ch = 0;ch < channels;ch++) {
-            // Sum of the box, from (x1,y1) to (x2,y2) = pre[x2][y2] + pre[x1-1][y1-1] - pre[x1-1][y2] - pre[x2][y1-1]
+            // Sum of the box, from (x1,y1) to (x2,y2) = pre[x2][y2] - pre[x1-1][y2] - pre[x2][y1-1] + pre[x1-1][y1-1]
             int x1 = max(x - blur_radius + 1, 0),
                 y1 = max(y - blur_radius + 1, 0),
                 x2 = min(x + blur_radius - 1, width - 1),
@@ -127,6 +128,31 @@ __global__ void redChannelKernel(unsigned char* imageData, int width, int height
     }
 }
 
+__global__ void thresholdEdgeDetectionKernel(unsigned char* source, unsigned char* target, int width, int height, int channels, int threshold) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x < width && y < height) {
+        int currIdx = get1dIdx(width, channels, 0, x, y),
+            leftIdx = get1dIdx(width, channels, 0, x, max(y - 1, 0)),
+            rightIdx = get1dIdx(width, channels, 0, x, min(y + 1, height - 1)),
+            topIdx = get1dIdx(width, channels, 0, max(x - 1, 0), y),
+            bottomIdx = get1dIdx(width, channels, 0, min(x + 1, width - 1), y);
+
+        int newIntensity = 0;
+        if (abs(source[currIdx] - source[leftIdx]) > threshold ||
+            abs(source[currIdx] - source[rightIdx]) > threshold ||
+            abs(source[currIdx] - source[topIdx]) > threshold ||
+            abs(source[currIdx] - source[bottomIdx]) > threshold) {
+            newIntensity = 255;
+        }
+
+        for (int ch = 0;ch < channels;ch++) {
+            target[currIdx + ch] = newIntensity;
+        }
+    }
+}
+
 int main()
 {
     cv::Mat image = cv::imread(IMAGE_PATH, cv::IMREAD_ANYCOLOR);
@@ -137,8 +163,8 @@ int main()
         return -1;
     }
 
-    //cv::namedWindow("Original", cv::WINDOW_AUTOSIZE);
-    //cv::imshow("Original", image);
+    cv::namedWindow("Original", cv::WINDOW_AUTOSIZE);
+    cv::imshow("Original", image);
 
     int width = image.cols,
         height = image.rows,
@@ -168,7 +194,12 @@ int main()
 
     cv::namedWindow(CURRENT_FILTER, cv::WINDOW_AUTOSIZE);
 
-    if (strcmp(CURRENT_FILTER, "Animated Blur") == 0) {
+    bool kernelExecuted = true,
+        waitForKeyOutside = true; // Don't wait twice, some filters handle it themselves
+
+    if (strcmp(CURRENT_FILTER, "Box Blur") == 0) {
+        waitForKeyOutside = false;
+
         // Prefix sum of a matrix. sum[i][j] = val[i][j] + sum[i-1][j] + sum[i][j-1] - sum[i-1][j-1]
         unsigned long* pre = (unsigned long*)malloc(imageDataSize * sizeof(unsigned long));
         for (int ch = 0;ch < channels;ch++) {
@@ -205,8 +236,11 @@ int main()
         cudaEventCreate(&startEvent);
         cudaEventCreate(&endEvent);
 
+        printf("Press P to pause\n");
+
         for (int radius = 2,direction = 1;;radius+=direction) {
             cudaEventRecord(startEvent, 0);
+            //TODO deviceImageData is overwritten?
             boxBlurKernel << <gridSize, blockSize >> > (devicePre, deviceImageData, width, height, channels, radius);
             cudaEventRecord(endEvent, 0);
             
@@ -222,7 +256,16 @@ int main()
 
             cv::Mat modifiedImage = cv::Mat(height, width, CV_8UC3, hostImageData);
             cv::imshow(CURRENT_FILTER, modifiedImage);
-            cv::waitKey(100);
+            int key = cv::waitKey(100);
+
+            if (key != -1) {
+                printf("Pressed %d\n", key);
+
+                if (key == KEY_P) {
+                    waitForKeyOutside = true;
+                }
+                break;
+            }
 
             if (radius == 50 || radius == 1) {
                 direction = -direction;
@@ -235,18 +278,6 @@ int main()
         cudaFree(devicePre);
 
         free(pre);
-    }
-    else if (strcmp(CURRENT_FILTER, "Box Blur") == 0) {
-        unsigned char* deviceImageDataCopy;
-        cudaMalloc(&deviceImageDataCopy, imageDataSize);
-        cudaMemcpy(deviceImageDataCopy, image.data, imageDataSize, cudaMemcpyHostToDevice);
-
-        //boxBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels, 5);
-
-        hostImageData = (unsigned char*)malloc(imageDataSize);
-        cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
-
-        cudaFree(deviceImageDataCopy);
     }
     else if (strcmp(CURRENT_FILTER, "Gaussian Blur") == 0) {
         unsigned char* deviceImageDataCopy;
@@ -276,21 +307,39 @@ int main()
         hostImageData = (unsigned char*)malloc(imageDataSize);
         cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
     }
+    else if (strcmp(CURRENT_FILTER, "Threshold Edge Detection") == 0) {
+        printf("Applying grayscale\n");
+        grayscaleKernel << <gridSize, blockSize >> > (deviceImageData, width, height, channels);
+
+        printf("Applying threshold edge detection\n");
+        unsigned char* deviceImageDataCopy;
+        cudaMalloc(&deviceImageDataCopy, imageDataSize);
+        cudaMemcpy(deviceImageDataCopy, image.data, imageDataSize, cudaMemcpyHostToDevice);
+
+        thresholdEdgeDetectionKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels, 20);
+
+        hostImageData = (unsigned char*)malloc(imageDataSize);
+        cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
+    }
     else {
-        printf("Unknown filter\n");
-        return 1;
+        printf("Error: unknown filter\n");
+        kernelExecuted = false;
     }
 
-    int executions = gridSize.x * gridSize.y * gridSize.z * blockSize.x * blockSize.y * blockSize.z;
-    printf("Kernel was executed %d times, wasted %d\n", executions, executions - (int) image.total());
+    if (kernelExecuted) {
+        int executions = gridSize.x * gridSize.y * gridSize.z * blockSize.x * blockSize.y * blockSize.z;
+        printf("Kernel was executed %d times, wasted %d\n", executions, executions - (int)image.total());
 
-    cv::Mat modifiedImage = cv::Mat(height, width, CV_8UC3, hostImageData);
+        cv::Mat modifiedImage = cv::Mat(height, width, CV_8UC3, hostImageData);
 
-    cv::imwrite("modified.bmp", modifiedImage);
+        cv::imwrite("modified.bmp", modifiedImage);
 
-    cv::imshow(CURRENT_FILTER, modifiedImage);
+        cv::imshow(CURRENT_FILTER, modifiedImage);
+    }
 
-    cv::waitKey(0);
+    if (waitForKeyOutside) {
+        cv::waitKey(0);
+    }
 
     cudaFree(deviceImageData);
     return 0;
