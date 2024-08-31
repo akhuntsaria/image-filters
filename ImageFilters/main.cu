@@ -8,12 +8,12 @@
 
 const char* CURRENT_FILTER =
     //"Box Blur";
-    //"Gaussian Blur";
+    "Gaussian Blur";
     //"Grayscale";
     //"Invert";
     //"Red Channel";
-    "Threshold Edge Detection";
-const char* IMAGE_PATH = "edgeflower.jpg";
+    //"Threshold Edge Detection";
+const char* IMAGE_PATH = "image.jpg";
 const int KEY_P = 112;
 
 // Color + 2D index, image[channel][i][j], to 1D
@@ -49,33 +49,28 @@ __global__ void boxBlurKernel(unsigned long* pre, unsigned char* target, int wid
             int boxSide = blur_radius * 2 - 1,
                 boxPixels = boxSide * boxSide,
                 avg = chSum / boxPixels;
-            //printf("ch=%d, center=(%d,%d), box=(%d,%d)-(%d,%d), sum %d, avg %d\n", ch, x, y, x1, y1, x2, y2, chSum, avg);
-
             target[get1dIdx(width, channels, ch, x, y)] = avg;
         }
     }
 }
 
-__global__ void gaussianBlurKernel(unsigned char* source, unsigned char* target, int width, int height, int channels) {
+__global__ void gaussianBlurKernel(float* kernel, unsigned char* source, unsigned char* target, int width, int height, int channels) {
     int x = blockIdx.x * blockDim.x + threadIdx.x,
         y = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (x < width && y < height) {
         int totalSize = width * height * channels;
-        float kernel[3][3] = {
-            {1 / 16.0, 2 / 16.0, 1 / 16.0},
-            {2 / 16.0, 4 / 16.0, 2 / 16.0},
-            {1 / 16.0, 2 / 16.0, 1 / 16.0}
-        };
         for (int ch = 0;ch < channels;ch++) {
             float weightedSum = 0;
-            for (int i = -1;i <= 1;i++) {
-                for (int j = -1;j <= 1;j++) {
+            for (int i = -2;i <= 2;i++) {
+                for (int j = -2;j <= 2;j++) {
                     int idx = (y + j) * width * channels + (x + i) * channels;
                     idx += ch;
                     if (idx >= 0 && idx < totalSize) {
-                        // Moving indices from [-1,1] to [0,2] for the kernel
-                        weightedSum += (int)source[idx] * kernel[i+1][j+1];
+                        // Get the flat index + move indices from [-2,2] to [0,4] for the kernel
+                        int kernelIdx = (i + 2) * 5 + (j + 2);
+                        //printf("%d,%d kernel value: %d\n", i, j, kernel[kernelIdx]);
+                        weightedSum += (int)source[idx] * kernel[kernelIdx];
                     }
                 }
             }
@@ -280,14 +275,50 @@ int main()
         free(pre);
     }
     else if (strcmp(CURRENT_FILTER, "Gaussian Blur") == 0) {
+        float kernel[5][5]{},
+            kernelSum = 0.0f,
+            pi = 3.14159f,
+            sigma = 1.0f;
+
+        for (int x = -2;x <= 2;x++) {
+            for (int y = -2;y <= 2;y++) {
+                int i = x + 2,
+                    j = y + 2;
+                kernel[i][j] = 1 / (2 * pi * sigma * sigma) * exp(-((float)x * x + y * y) / 2 * sigma * sigma);
+                kernelSum += kernel[i][j];
+            }
+        }
+
+        // Normalize
+        for (int i = 0;i < 5;i++) {
+            for (int j = 0;j < 5;j++) {
+                kernel[i][j] /= kernelSum;
+            }
+        }
+
+        printf("Gaussian blur kernel:\n");
+        for (int i = 0;i < 5;i++) {
+            for (int j = 0;j < 5;j++) {
+                printf("%f ", kernel[i][j]);
+            }
+            printf("\n");
+        }
+
+        int kernelDataSize = 5 * 5 * sizeof(float);
+        float* deviceKernel;
+        cudaMalloc(&deviceKernel, kernelDataSize);
+        cudaMemcpy(deviceKernel, (float*)kernel, kernelDataSize, cudaMemcpyHostToDevice);
+
         unsigned char* deviceImageDataCopy;
         cudaMalloc(&deviceImageDataCopy, imageDataSize);
         cudaMemcpy(deviceImageDataCopy, image.data, imageDataSize, cudaMemcpyHostToDevice);
 
-        gaussianBlurKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels);
+        gaussianBlurKernel << <gridSize, blockSize >> > (deviceKernel, deviceImageDataCopy, deviceImageData, width, height, channels);
 
         hostImageData = (unsigned char*)malloc(imageDataSize);
         cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
+
+        cudaFree(deviceKernel);
     }
     else if (strcmp(CURRENT_FILTER, "Grayscale") == 0) {
         grayscaleKernel << <gridSize, blockSize >> > (deviceImageData, width, height, channels);
