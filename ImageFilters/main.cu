@@ -1,13 +1,16 @@
 ﻿#include <cuda_runtime.h>
 #include <curand_kernel.h>
+#include <limits.h>
 #include <opencv2/core.hpp>
 #include <opencv2/core/matx.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 #include <stdio.h>
 
-const char* IMAGE_PATH = "gizzard.jpg";
 const int KEY_P = 112;
+const int KEY_Q = 113;
+
+bool isPaused = false;
 
 // Color + 2D index, image[channel][i][j], to 1D
 __device__ __host__ int get1dIdx(int width, int channels, int channel, int i, int j) {
@@ -103,6 +106,25 @@ __global__ void grayscaleKernel(unsigned char* imageData, int width, int height,
     }
 }
 
+void handleKeyboardInput() {
+    int key = cv::waitKey(100);
+
+    if (key != -1) {
+        printf("Pressed %d\n", key);
+
+        if (key == KEY_Q) {
+            exit(0);
+        }
+
+        if (key == KEY_P) {
+            isPaused = !isPaused;
+            if (isPaused) {
+                printf("Paused. Press 'p' to resume or 'q' to exit.\n");
+            }
+        }
+    }
+}
+
 __global__ void invertKernel(unsigned char* imageData, int width, int height, int channels) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -192,17 +214,22 @@ __global__ void thresholdEdgeDetectionKernel(unsigned char* source, unsigned cha
 
 int main(int argc, char* argv[])
 {
-    const char* key = "current_filter";
     const char* currentFilter = NULL;
+    const char* imagePath = NULL;
 
     for (int i = 1; i < argc; i++) {
         char* pos = strchr(argv[i], '=');
         if (pos != NULL) {
-            // Compare the key part (before '=') with "current_filter"
-            if (strncmp(argv[i], key, pos - argv[i]) == 0) {
+            // Compare the key part (before '=') with "filter"
+            if (strncmp(argv[i], "filter", pos - argv[i]) == 0) {
                 // Get the value part (after '=')
                 currentFilter = pos + 1;
-                break;
+                continue;
+            }
+
+            if (strncmp(argv[i], "image", pos - argv[i]) == 0) {
+                imagePath = pos + 1;
+                continue;
             }
         }
     }
@@ -211,7 +238,11 @@ int main(int argc, char* argv[])
         currentFilter = "Box Blur";
     }
 
-    cv::Mat image = cv::imread(IMAGE_PATH, cv::IMREAD_ANYCOLOR);
+    if (imagePath == NULL) {
+        imagePath = "gizzard.jpg";
+    }
+
+    cv::Mat image = cv::imread(imagePath, cv::IMREAD_ANYCOLOR);
 
     if (image.empty())
     {
@@ -292,11 +323,8 @@ int main(int argc, char* argv[])
         cudaEventCreate(&startEvent);
         cudaEventCreate(&endEvent);
 
-        printf("Press P to pause\n");
-
         for (int radius = 2,direction = 1;;radius+=direction) {
             cudaEventRecord(startEvent, 0);
-            //TODO deviceImageData is overwritten?
             boxBlurKernel << <gridSize, blockSize >> > (devicePre, deviceImageData, width, height, channels, radius);
             cudaEventRecord(endEvent, 0);
             
@@ -305,27 +333,25 @@ int main(int argc, char* argv[])
             float elapsedTime;
             cudaEventElapsedTime(&elapsedTime, startEvent, endEvent);
 
-            printf("Radius %d,\texecuted in %fms\n", radius, elapsedTime);
+            printf("Radius %d\texecuted in %fms\n", radius, elapsedTime);
 
             hostImageData = (unsigned char*)malloc(imageDataSize);
             cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
 
             cv::Mat modifiedImage = cv::Mat(height, width, CV_8UC3, hostImageData);
             cv::imshow(currentFilter, modifiedImage);
-            int key = cv::waitKey(100);
+            
+            handleKeyboardInput();
 
-            if (key != -1) {
-                printf("Pressed %d\n", key);
-
-                if (key == KEY_P) {
-                    waitForKeyOutside = true;
-                }
-                break;
+            while (isPaused) {
+                handleKeyboardInput();
             }
 
             if (radius == 50 || radius == 1) {
                 direction = -direction;
             }
+
+            free(hostImageData);
         }
 
         cudaEventDestroy(startEvent);
