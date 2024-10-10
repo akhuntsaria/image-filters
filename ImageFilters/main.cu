@@ -1,4 +1,5 @@
-﻿#include <cuda_runtime.h>
+﻿#include <cmath>
+#include <cuda_runtime.h>
 #include <curand_kernel.h>
 #include <limits.h>
 #include <opencv2/core.hpp>
@@ -6,6 +7,8 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 #include <stdio.h>
+
+#define M_PI 3.141592
 
 const int KEY_P = 112;
 const int KEY_Q = 113;
@@ -77,18 +80,6 @@ __global__ void gaussianBlurKernel(float* kernel, unsigned char* source, unsigne
     }
 }
 
-__global__ void gradientMagnitudeThresholdingKernel(unsigned char* source, unsigned char* target, int width, int height, int channels, int threshold) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x,
-        y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (x < width && y < height) {
-        for (int ch = 0;ch < channels;ch++) {
-            int idx = y * width * channels + x * channels;
-            target[idx + ch] = target[idx + ch] >= threshold ? target[idx + ch] : 0;
-        }
-    }
-}
-
 __global__ void grayscaleKernel(unsigned char* imageData, int width, int height, int channels) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -150,43 +141,6 @@ __global__ void redChannelKernel(unsigned char* imageData, int width, int height
     }
 }
 
-__global__ void sobelKernel(unsigned char* source, unsigned char* target, int width, int height, int channels) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x,
-        y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (x < width && y < height) {
-        int kernelX[3][3] = {
-            {1, 0, -1},
-            {2, 0, -2},
-            {1, 0, -1},
-        }, kernelY[3][3] = {
-            { 1,  2,  1},
-            { 0,  0,  0},
-            {-1, -2, -1},
-        };
-
-        int totalSize = width * height * channels;
-        for (int ch = 0;ch < channels;ch++) {
-            int sumX = 0,
-                sumY = 0;
-            for (int i = -1;i <= 1;i++) {
-                for (int j = -1;j <= 1;j++) {
-                    int idx = (y + j) * width * channels + (x + i) * channels;
-                    idx += ch;
-                    if (idx >= 0 && idx < totalSize) {
-                        // Move indices from [-1,1] to [0,2] for the kernel
-                        sumX += (int)source[idx] * kernelX[i + 1][j + 1];
-                        sumY += (int)source[idx] * kernelY[i + 1][j + 1];
-                    }
-                }
-            }
-
-            int idx = y * width * channels + x * channels;
-            target[idx + ch] = (int)sqrt((float)sumX * sumX + sumY * sumY);
-        }
-    }
-}
-
 __global__ void thresholdEdgeDetectionKernel(unsigned char* source, unsigned char* target, int width, int height, int channels, int threshold) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -244,8 +198,7 @@ int main(int argc, char* argv[])
 
     cv::Mat image = cv::imread(imagePath, cv::IMREAD_ANYCOLOR);
 
-    if (image.empty())
-    {
+    if (image.empty()) {
         printf("Could not open or find the image\n");
         return -1;
     }
@@ -361,73 +314,16 @@ int main(int argc, char* argv[])
 
         free(pre);
     }
-    else if (strcmp(currentFilter, "Canny Edge Detection") == 0) {
-        printf("Applying grayscale\n");
-        grayscaleKernel << <gridSize, blockSize >> > (deviceImageData, width, height, channels);
-
-        printf("Applying Gaussian blur\n");
-        float kernel[5][5]{},
-            kernelSum = .0f,
-            pi = 3.14159f,
-            sigma = .6f;
-
-        for (int x = -2;x <= 2;x++) {
-            for (int y = -2;y <= 2;y++) {
-                int i = x + 2,
-                    j = y + 2;
-                kernel[i][j] = 1 / (2 * pi * sigma * sigma) * exp(-((float)x * x + y * y) / 2 * sigma * sigma);
-                kernelSum += kernel[i][j];
-            }
-        }
-
-        // Normalize
-        for (int i = 0;i < 5;i++) {
-            for (int j = 0;j < 5;j++) {
-                kernel[i][j] /= kernelSum;
-            }
-        }
-
-        printf("Gaussian blur kernel:\n");
-        for (int i = 0;i < 5;i++) {
-            for (int j = 0;j < 5;j++) {
-                printf("%f ", kernel[i][j]);
-            }
-            printf("\n");
-        }
-
-        int kernelDataSize = 5 * 5 * sizeof(float);
-        float* deviceKernel;
-        cudaMalloc(&deviceKernel, kernelDataSize);
-        cudaMemcpy(deviceKernel, (float*)kernel, kernelDataSize, cudaMemcpyHostToDevice);
-
-        unsigned char* deviceImageDataCopy;
-        cudaMalloc(&deviceImageDataCopy, imageDataSize);
-        cudaMemcpy(deviceImageDataCopy, deviceImageData, imageDataSize, cudaMemcpyDeviceToDevice);
-
-        gaussianBlurKernel << <gridSize, blockSize >> > (deviceKernel, deviceImageDataCopy, deviceImageData, width, height, channels);
-
-        cudaFree(deviceKernel);
-
-        printf("Applying Sobel operator\n");
-        cudaMemcpy(deviceImageDataCopy, deviceImageData, imageDataSize, cudaMemcpyDeviceToDevice);
-        sobelKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels);
-
-        hostImageData = (unsigned char*)malloc(imageDataSize);
-        cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
-
-        cudaFree(deviceImageDataCopy);
-    }
     else if (strcmp(currentFilter, "Gaussian Blur") == 0) {
         float kernel[5][5]{},
-            kernelSum = 0.0f,
-            pi = 3.14159f,
-            sigma = 1.0f;
+            kernelSum = .0f,
+            sigma = .75f;
 
         for (int x = -2;x <= 2;x++) {
             for (int y = -2;y <= 2;y++) {
                 int i = x + 2,
                     j = y + 2;
-                kernel[i][j] = 1 / (2 * pi * sigma * sigma) * exp(-((float)x * x + y * y) / 2 * sigma * sigma);
+                kernel[i][j] = 1 / (2 * M_PI * sigma * sigma) * exp(-((float)x * x + y * y) / 2 * sigma * sigma);
                 kernelSum += kernel[i][j];
             }
         }
@@ -463,24 +359,6 @@ int main(int argc, char* argv[])
 
         cudaFree(deviceKernel);
     }
-    else if (strcmp(currentFilter, "Gradient Magnitude Thresholding") == 0) {
-        printf("Applying grayscale\n");
-        grayscaleKernel << <gridSize, blockSize >> > (deviceImageData, width, height, channels);
-
-        printf("Applying Sobel operator");
-        unsigned char* deviceImageDataCopy;
-        cudaMalloc(&deviceImageDataCopy, imageDataSize);
-        cudaMemcpy(deviceImageDataCopy, deviceImageData, imageDataSize, cudaMemcpyDeviceToDevice);
-
-        sobelKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels);
-
-        printf("Applying gradient magnitude thresholding");
-        cudaMemcpy(deviceImageDataCopy, deviceImageData, imageDataSize, cudaMemcpyDeviceToDevice);
-        gradientMagnitudeThresholdingKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels, 150);
-
-        hostImageData = (unsigned char*)malloc(imageDataSize);
-        cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
-    }
     else if (strcmp(currentFilter, "Grayscale") == 0) {
         grayscaleKernel << <gridSize, blockSize >> > (deviceImageData, width, height, channels);
 
@@ -495,20 +373,6 @@ int main(int argc, char* argv[])
     }
     else if (strcmp(currentFilter, "Red Channel") == 0) {
         redChannelKernel << <gridSize, blockSize >> > (deviceImageData, width, height, channels);
-
-        hostImageData = (unsigned char*)malloc(imageDataSize);
-        cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
-    }
-    else if (strcmp(currentFilter, "Sobel Operator (Intensity Gradient)") == 0) {
-        printf("Applying grayscale\n");
-        grayscaleKernel << <gridSize, blockSize >> > (deviceImageData, width, height, channels);
-        
-        printf("Applying Sobel operator");
-        unsigned char* deviceImageDataCopy;
-        cudaMalloc(&deviceImageDataCopy, imageDataSize);
-        cudaMemcpy(deviceImageDataCopy, deviceImageData, imageDataSize, cudaMemcpyDeviceToDevice);
-
-        sobelKernel << <gridSize, blockSize >> > (deviceImageDataCopy, deviceImageData, width, height, channels);
 
         hostImageData = (unsigned char*)malloc(imageDataSize);
         cudaMemcpy(hostImageData, deviceImageData, imageDataSize, cudaMemcpyDeviceToHost);
@@ -548,5 +412,6 @@ int main(int argc, char* argv[])
     }
 
     cudaFree(deviceImageData);
+    free(hostImageData);
     return 0;
 }
